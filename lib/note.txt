@@ -1,0 +1,333 @@
+// import 'package:flutter/material.dart';
+
+// class HomeScreen extends StatelessWidget {
+//   const HomeScreen({super.key});
+
+//   @override
+//   Widget build(BuildContext context) {
+//     return Scaffold(
+//       backgroundColor: const Color(0xfff0f0f0),
+//       appBar: AppBar(),
+//       body: SingleChildScrollView(
+//         child: Column(
+//           children: [
+//             Row(
+//               spacing: 10,
+//               children: [
+//                 Expanded(
+//                   child: Container(
+//                     padding: const EdgeInsets.all(20),
+//                     decoration: BoxDecoration(
+//                       color: const Color(0xFFbfdbfe),
+//                       borderRadius: BorderRadius.circular(10),
+//                     ),
+//                     child: const Text("To Do", textAlign: TextAlign.center),
+//                   ),
+//                 ),
+//                 Expanded(
+//                   child: Container(
+//                     decoration: BoxDecoration(
+//                       color: const Color(0xFFfef08a),
+//                       borderRadius: BorderRadius.circular(10),
+//                     ),
+//                     padding: const EdgeInsets.all(20),
+//                     child: const Text(
+//                       "In Progress",
+//                       textAlign: TextAlign.center,
+//                     ),
+//                   ),
+//                 ),
+//                 Expanded(
+//                   child: Container(
+//                     decoration: BoxDecoration(
+//                       color: const Color(0xFFdcfce7),
+//                       borderRadius: BorderRadius.circular(10),
+//                     ),
+//                     padding: const EdgeInsets.all(20),
+//                     child: const Text("Done", textAlign: TextAlign.center),
+//                   ),
+//                 ),
+//               ],
+//             ),
+//           ],
+//         ),
+//       ),
+//     );
+//   }
+// }
+
+
+
+
+
+
+// import 'package:cloud_firestore/cloud_firestore.dart';
+// import 'package:firebase_storage/firebase_storage.dart' as fb_storage;
+// import 'package:kanban_board_app/data/models/task_model.dart' as app_model;
+
+// class FirebaseTaskService {
+//   final FirebaseFirestore firestore = FirebaseFirestore.instance;
+//   final fb_storage.FirebaseStorage storage =
+//       fb_storage.FirebaseStorage.instance;
+
+//   Future<void> saveTask(app_model.Task task) async {
+//     await firestore.collection('tasks').doc(task.id).set(task.toJson());
+//   }
+
+//   Future<List<app_model.Task>> fetchTasks() async {
+//     final querySnapshot = await firestore.collection('tasks').get();
+//     return querySnapshot.docs
+//         .map((doc) => app_model.Task.fromJson(doc.data()))
+//         .toList();
+//   }
+
+//   Future<void> syncTask(app_model.Task task) async {
+//     final docRef = firestore.collection('tasks').doc(task.id);
+
+//     final doc = await docRef.get();
+
+//     if (doc.exists) {
+//       final remoteTask = app_model.Task.fromJson(doc.data()!);
+//       if (remoteTask.updatedAt.isBefore(task.updatedAt)) {
+//         await docRef.set(task.toJson());
+//       }
+//     } else {
+//       await docRef.set(task.toJson());
+//     }
+//   }
+
+//   Future<void> updateTask(app_model.Task task) async {
+//     await firestore.collection('tasks').doc(task.id).update(task.toJson());
+//   }
+// }
+
+
+
+
+
+// import 'dart:developer';
+// import 'package:connectivity_plus/connectivity_plus.dart';
+// import 'package:internet_connection_checker/internet_connection_checker.dart';
+// import 'package:flutter_bloc/flutter_bloc.dart';
+// import 'package:hive/hive.dart';
+// import 'package:kanban_board_app/data/models/task_model.dart';
+// import 'package:kanban_board_app/service/firebase_task_service.dart';
+// import 'kanban_event.dart';
+// import 'kanban_state.dart';
+
+// class KanbanBloc extends Bloc<KanbanEvent, KanbanState> {
+//   final Box<Task> taskBox = Hive.box<Task>('tasks');
+
+//   KanbanBloc() : super(KanbanState()) {
+//     on<LoadTasks>(_onLoadTasks);
+//     on<AddTask>(_onAddTask);
+//     on<EditTask>(_onEditTask);
+//     on<MoveTask>(_onMoveTask);
+//     add(LoadTasks());
+//   }
+
+//   void _onLoadTasks(LoadTasks event, Emitter<KanbanState> emit) async {
+//     emit(state.copyWith(isLoading: true));
+
+//     try {
+//       final hasInternet =
+//           await InternetConnectionChecker.instance.hasConnection;
+//       log("[DEBUG] Internet available: $hasInternet");
+
+//       if (hasInternet) {
+//         final tasks = await FirebaseTaskService().fetchTasks();
+//         final todo = tasks.where((task) => task.status == 'todo').toList();
+//         final inProgress = tasks
+//             .where((task) => task.status == 'inProgress')
+//             .toList();
+//         final done = tasks.where((task) => task.status == 'done').toList();
+
+//         emit(
+//           state.copyWith(
+//             todo: todo,
+//             inProgress: inProgress,
+//             done: done,
+//             isLoading: false,
+//           ),
+//         );
+
+//         log("[KanbanBloc] Loaded ${tasks.length} tasks from Firestore.");
+//       } else {
+//         log("[DEBUG] No internet, checking Hive...");
+//         final hiveTasks = Hive.box<Task>('tasks').values.toList();
+//         log("[DEBUG] Found ${hiveTasks.length} tasks in Hive.");
+
+//         if (hiveTasks.isNotEmpty) {
+//           final todo = hiveTasks
+//               .where((task) => task.status == 'todo')
+//               .toList();
+//           final inProgress = hiveTasks
+//               .where((task) => task.status == 'inProgress')
+//               .toList();
+//           final done = hiveTasks
+//               .where((task) => task.status == 'done')
+//               .toList();
+
+//           emit(
+//             state.copyWith(
+//               todo: todo,
+//               inProgress: inProgress,
+//               done: done,
+//               isLoading: false,
+//             ),
+//           );
+//           log("[KanbanBloc] Loaded tasks from Hive (offline).");
+//         } else {
+//           emit(
+//             state.copyWith(
+//               todo: [],
+//               inProgress: [],
+//               done: [],
+//               isLoading: false,
+//             ),
+//           );
+//           log("[KanbanBloc] No internet and no local tasks.");
+//         }
+//       }
+//     } catch (e) {
+//       log("[KanbanBloc] Error loading tasks: $e");
+//       emit(
+//         state.copyWith(todo: [], inProgress: [], done: [], isLoading: false),
+//       );
+//     }
+//   }
+
+//   void _onAddTask(AddTask event, Emitter<KanbanState> emit) async {
+//     final newTask = Task(
+//       title: event.title,
+//       description: event.description,
+//       attachments: event.attachments,
+//       status: "todo",
+//       assignedTo: "userId1",
+//       updatedBy: "userId1",
+//       updatedAt: DateTime.now(),
+//     );
+
+//     try {
+//       final taskBox = Hive.box<Task>('tasks');
+//       await taskBox.add(newTask);
+//       log("[KanbanBloc] Task saved locally in Hive.");
+//     } catch (e) {
+//       log("[KanbanBloc] ERROR: Failed to save task in Hive -> $e");
+//     }
+
+//     try {
+//       await FirebaseTaskService().saveTask(newTask);
+//       log("[KanbanBloc] SUCCESS: Task added to Firestore (id: ${newTask.id}).");
+//     } catch (e) {
+//       log("[KanbanBloc] ERROR: Failed to add task to Firestore -> $e");
+//     }
+
+//     emit(state.copyWith(todo: [...state.todo, newTask]));
+//   }
+
+//   void _onEditTask(EditTask event, Emitter<KanbanState> emit) async {
+//     final updatedTask = event.oldTask.copyWith(
+//       title: event.newTitle,
+//       description: event.newDescription,
+//       updatedBy: "userId1",
+//       updatedAt: DateTime.now(),
+//     );
+
+//     // Update in Hive
+//     final key = taskBox.keys.firstWhere(
+//       (k) => taskBox.get(k) == event.oldTask,
+//       orElse: () => null,
+//     );
+//     if (key != null) {
+//       taskBox.put(key, updatedTask);
+//       log("[Hive] Edited task locally: ${updatedTask.title}");
+//     }
+
+//     // Update in Firestore
+//     try {
+//       await FirebaseTaskService().updateTask(updatedTask);
+//       log("[Firebase] Edited task in Firestore: ${updatedTask.title}");
+//     } catch (e) {
+//       log("[Firebase] ERROR editing task in Firestore: $e");
+//     }
+
+//     emit(
+//       KanbanState(
+//         todo: _updateTaskList(state.todo, event),
+//         inProgress: _updateTaskList(state.inProgress, event),
+//         done: _updateTaskList(state.done, event),
+//       ),
+//     );
+//   }
+
+//   List<Task> _updateTaskList(List<Task> tasks, EditTask event) {
+//     return tasks.map((task) {
+//       if (task == event.oldTask) {
+//         return task.copyWith(
+//           title: event.newTitle,
+//           description: event.newDescription,
+//           updatedAt: DateTime.now(),
+//         );
+//       }
+//       return task;
+//     }).toList();
+//   }
+
+//   void _onMoveTask(MoveTask event, Emitter<KanbanState> emit) async {
+//     final updatedTodo = List<Task>.from(state.todo)..remove(event.task);
+//     final updatedInProgress = List<Task>.from(state.inProgress)
+//       ..remove(event.task);
+//     final updatedDone = List<Task>.from(state.done)..remove(event.task);
+
+//     final movedTask = event.task.copyWith(
+//       status: _getStatusLabel(event.targetColumn),
+//       updatedBy: "userId1",
+//       updatedAt: DateTime.now(),
+//     );
+
+//     if (event.targetColumn == "todo") {
+//       updatedTodo.add(movedTask);
+//     } else if (event.targetColumn == "inProgress") {
+//       updatedInProgress.add(movedTask);
+//     } else if (event.targetColumn == "done") {
+//       updatedDone.add(movedTask);
+//     }
+
+//     // Update in Hive
+//     final key = taskBox.keys.firstWhere(
+//       (k) => taskBox.get(k) == event.task,
+//       orElse: () => null,
+//     );
+//     if (key != null) taskBox.put(key, movedTask);
+
+//     // Update in Firestore
+//     try {
+//       await FirebaseTaskService().updateTask(movedTask);
+//       log(
+//         "[Firebase] Task moved in Firestore: ${movedTask.title} -> ${movedTask.status}",
+//       );
+//     } catch (e) {
+//       log("[Firebase] ERROR moving task in Firestore: $e");
+//     }
+
+//     emit(
+//       KanbanState(
+//         todo: updatedTodo,
+//         inProgress: updatedInProgress,
+//         done: updatedDone,
+//       ),
+//     );
+//   }
+
+//   String _getStatusLabel(String targetColumn) {
+//     switch (targetColumn) {
+//       case "inProgress":
+//         return "inProgress";
+//       case "done":
+//         return "done";
+//       default:
+//         return "todo";
+//     }
+//   }
+// }
