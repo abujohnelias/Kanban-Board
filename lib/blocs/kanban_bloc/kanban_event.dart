@@ -2,8 +2,6 @@ import 'package:kanban_board_app/data/models/task_model.dart';
 
 abstract class KanbanEvent {}
 
-
-
 class LoadTasks extends KanbanEvent {}
 
 class MoveTask extends KanbanEvent {
